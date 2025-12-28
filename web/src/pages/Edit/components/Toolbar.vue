@@ -687,54 +687,6 @@ export default {
     }
   }
 }
-
-.serverDocList {
-  max-height: 360px;
-  overflow: auto;
-}
-
-.serverDocEmpty {
-  padding: 24px 0;
-  text-align: center;
-  color: #909399;
-}
-
-.serverDocItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-
-  &.active {
-    background: rgba(64, 158, 255, 0.12);
-  }
-
-  &:hover {
-    background: rgba(0, 0, 0, 0.03);
-  }
-}
-
-.serverDocInfo {
-  flex: 1;
-}
-
-.serverDocTitle {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.serverDocMeta {
-  font-size: 12px;
-  color: #909399;
-}
-
-.serverDocActions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
 </script>
 
 <style lang="less" scoped>
@@ -966,5 +918,53 @@ export default {
       }
     }
   }
+}
+
+.serverDocList {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.serverDocEmpty {
+  padding: 24px 0;
+  text-align: center;
+  color: #909399;
+}
+
+.serverDocItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+
+  &.active {
+    background: rgba(64, 158, 255, 0.12);
+  }
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.03);
+  }
+}
+
+.serverDocInfo {
+  flex: 1;
+}
+
+.serverDocTitle {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.serverDocMeta {
+  font-size: 12px;
+  color: #909399;
+}
+
+.serverDocActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 </style>
