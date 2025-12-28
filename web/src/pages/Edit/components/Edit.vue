@@ -61,6 +61,13 @@
     >
       <div class="dragTip">{{ $t('edit.dragTip') }}</div>
     </div>
+    <div class="serverSaveStatus" v-if="serverMode">
+      <span v-if="serverSaving">正在保存...</span>
+      <span v-else-if="serverSaveError">保存失败</span>
+      <span v-else-if="serverLastSavedAt"
+        >已保存 {{ serverLastSavedAt }}</span
+      >
+    </div>
   </div>
 </template>
 
@@ -208,7 +215,9 @@ export default {
       serverDocId: getLastDocId(),
       serverDocVersion: null,
       serverSaveTimer: null,
-      serverSaving: false
+      serverSaving: false,
+      serverLastSavedAt: '',
+      serverSaveError: false
     }
   },
   computed: {
@@ -409,6 +418,7 @@ export default {
       if (!this.serverMode || !this.mindMap) return
       if (this.serverSaving) return
       this.serverSaving = true
+      this.serverSaveError = false
       try {
         const fullData = this.mindMap.getData(true)
         const title = this.inferServerTitle(fullData)
@@ -418,6 +428,7 @@ export default {
           this.serverDocVersion = created.version
           setLastDocId(created.id)
           this.$bus.$emit('server_doc_changed', created.id)
+          this.serverLastSavedAt = this.formatSavedAt(new Date())
           return
         }
         const payload = {
@@ -435,13 +446,22 @@ export default {
         }
         if (result.doc) {
           this.serverDocVersion = result.doc.version
+          this.serverLastSavedAt = this.formatSavedAt(new Date())
         }
       } catch (error) {
         console.log(error)
         this.$message.error('保存失败')
+        this.serverSaveError = true
       } finally {
         this.serverSaving = false
       }
+    },
+
+    formatSavedAt(date) {
+      const pad = value => String(value).padStart(2, '0')
+      return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+        date.getSeconds()
+      )}`
     },
 
     async handleServerConflict(conflict) {
@@ -862,5 +882,18 @@ export default {
     width: 100%;
     height: 100%;
   }
+}
+
+.serverSaveStatus {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+  background: rgba(255, 255, 255, 0.85);
+  padding: 6px 10px;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  z-index: 5;
 }
 </style>
