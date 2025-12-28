@@ -2,6 +2,7 @@ import exampleData from 'simple-mind-map/example/exampleData'
 import { simpleDeepClone } from 'simple-mind-map/src/utils/index'
 import Vue from 'vue'
 import vuexStore from '@/store'
+import { isServerMode } from './server'
 
 const SIMPLE_MIND_MAP_DATA = 'SIMPLE_MIND_MAP_DATA'
 const SIMPLE_MIND_MAP_CONFIG = 'SIMPLE_MIND_MAP_CONFIG'
@@ -12,6 +13,9 @@ let mindMapData = null
 
 // 获取缓存的思维导图数据
 export const getData = () => {
+  if (isServerMode()) {
+    return simpleDeepClone(exampleData)
+  }
   // 接管模式
   if (window.takeOverApp) {
     mindMapData = window.takeOverAppMethods.getMindMapData()
@@ -36,6 +40,16 @@ export const getData = () => {
 // 存储思维导图数据
 export const storeData = data => {
   try {
+    if (isServerMode()) {
+      if (!mindMapData) {
+        mindMapData = {}
+      }
+      mindMapData = {
+        ...mindMapData,
+        ...data
+      }
+      return
+    }
     let originData = null
     if (window.takeOverApp) {
       originData = mindMapData

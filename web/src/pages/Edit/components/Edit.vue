@@ -102,6 +102,14 @@ import Contextmenu from './Contextmenu.vue'
 import RichTextToolbar from './RichTextToolbar.vue'
 import NodeNoteContentShow from './NodeNoteContentShow.vue'
 import { getData, getConfig, storeData } from '@/api'
+import {
+  isServerMode,
+  getDoc,
+  updateDoc,
+  createDoc,
+  getLastDocId,
+  setLastDocId
+} from '@/api/server'
 import Navigator from './Navigator.vue'
 import NodeImgPreview from './NodeImgPreview.vue'
 import SidebarTrigger from './SidebarTrigger.vue'
@@ -195,7 +203,12 @@ export default {
       mindMapConfig: {},
       prevImg: '',
       storeConfigTimer: null,
-      showDragMask: false
+      showDragMask: false,
+      serverMode: isServerMode(),
+      serverDocId: getLastDocId(),
+      serverDocVersion: null,
+      serverSaveTimer: null,
+      serverSaving: false
     }
   },
   computed: {
@@ -244,6 +257,10 @@ export default {
     this.$bus.$on('localStorageExceeded', this.onLocalStorageExceeded)
     window.addEventListener('resize', this.handleResize)
     this.$bus.$on('showDownloadTip', this.showDownloadTip)
+    if (this.serverMode) {
+      this.$bus.$on('server_doc_load', this.loadServerDoc)
+      this.bootstrapServerDoc()
+    }
   },
   beforeDestroy() {
     this.$bus.$off('execCommand', this.execCommand)
@@ -259,6 +276,9 @@ export default {
     this.$bus.$off('localStorageExceeded', this.onLocalStorageExceeded)
     window.removeEventListener('resize', this.handleResize)
     this.$bus.$off('showDownloadTip', this.showDownloadTip)
+    if (this.serverMode) {
+      this.$bus.$off('server_doc_load', this.loadServerDoc)
+    }
     this.mindMap.destroy()
   },
   methods: {
@@ -314,9 +334,17 @@ export default {
     // 存储数据当数据有变时
     bindSaveEvent() {
       this.$bus.$on('data_change', data => {
+        if (this.serverMode) {
+          this.scheduleServerSave()
+          return
+        }
         storeData({ root: data })
       })
       this.$bus.$on('view_data_change', data => {
+        if (this.serverMode) {
+          this.scheduleServerSave()
+          return
+        }
         clearTimeout(this.storeConfigTimer)
         this.storeConfigTimer = setTimeout(() => {
           storeData({
@@ -328,7 +356,127 @@ export default {
 
     // 手动保存
     manualSave() {
+      if (this.serverMode) {
+        this.saveServerDoc()
+        return
+      }
       storeData(this.mindMap.getData(true))
+    },
+
+    inferServerTitle(data) {
+      if (data && data.root && data.root.data && data.root.data.text) {
+        return String(data.root.data.text).trim() || '未命名'
+      }
+      return '未命名'
+    },
+
+    async bootstrapServerDoc() {
+      if (!this.serverMode) return
+      if (this.serverDocId) {
+        await this.loadServerDoc({ id: this.serverDocId })
+        return
+      }
+      this.$bus.$emit('server_directory_open')
+    },
+
+    async loadServerDoc(doc) {
+      if (!this.serverMode || !doc) return
+      try {
+        const fetched = doc.data ? doc : await getDoc(doc.id)
+        this.serverDocId = fetched.id
+        this.serverDocVersion = fetched.version
+        setLastDocId(fetched.id)
+        this.$bus.$emit('server_doc_changed', fetched.id)
+        const data = fetched.data && fetched.data.root ? fetched.data : getData()
+        this.setData(data, { skipSave: true })
+      } catch (error) {
+        console.log(error)
+        this.$message.error('加载文档失败')
+        this.$bus.$emit('server_directory_open')
+      }
+    },
+
+    scheduleServerSave() {
+      if (!this.serverMode || !this.mindMap) return
+      if (!this.serverDocId) return
+      clearTimeout(this.serverSaveTimer)
+      this.serverSaveTimer = setTimeout(() => {
+        this.saveServerDoc()
+      }, 1200)
+    },
+
+    async saveServerDoc(force = false) {
+      if (!this.serverMode || !this.mindMap) return
+      if (this.serverSaving) return
+      this.serverSaving = true
+      try {
+        const fullData = this.mindMap.getData(true)
+        const title = this.inferServerTitle(fullData)
+        if (!this.serverDocId) {
+          const created = await createDoc({ title, data: fullData })
+          this.serverDocId = created.id
+          this.serverDocVersion = created.version
+          setLastDocId(created.id)
+          this.$bus.$emit('server_doc_changed', created.id)
+          return
+        }
+        const payload = {
+          title,
+          data: fullData,
+          expected_version: this.serverDocVersion
+        }
+        if (force) {
+          payload.force = true
+        }
+        const result = await updateDoc(this.serverDocId, payload)
+        if (result.conflict) {
+          await this.handleServerConflict(result.conflict)
+          return
+        }
+        if (result.doc) {
+          this.serverDocVersion = result.doc.version
+        }
+      } catch (error) {
+        console.log(error)
+        this.$message.error('保存失败')
+      } finally {
+        this.serverSaving = false
+      }
+    },
+
+    async handleServerConflict(conflict) {
+      const current = conflict.current
+      try {
+        await this.$confirm('检测到他人已更新，是否覆盖服务器版本？', '冲突提示', {
+          confirmButtonText: '覆盖',
+          cancelButtonText: '刷新'
+        })
+        this.downloadServerBackup(current)
+        await this.saveServerDoc(true)
+      } catch (error) {
+        if (error === 'cancel') {
+          this.serverDocVersion = current.version
+          this.setData(current.data, { skipSave: true })
+          return
+        }
+      }
+    },
+
+    downloadServerBackup(doc) {
+      if (!doc || !doc.data) return
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const name = `${doc.title || 'mind-map'}-${timestamp}.bak`
+      const blob = new Blob([JSON.stringify(doc.data, null, 2)], {
+        type: 'application/json'
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = name
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
     },
 
     // 初始化
@@ -515,7 +663,7 @@ export default {
     },
 
     // 动态设置思维导图数据
-    setData(data) {
+    setData(data, options = {}) {
       this.handleShowLoading()
       let rootNodeData = null
       if (data.root) {
@@ -526,7 +674,9 @@ export default {
         rootNodeData = data
       }
       this.mindMap.view.reset()
-      this.manualSave()
+      if (!options.skipSave) {
+        this.manualSave()
+      }
       // 如果导入的是富文本内容，那么自动开启富文本模式
       if (rootNodeData.data.richText && !this.openNodeRichText) {
         this.$bus.$emit('toggleOpenNodeRichText', true)

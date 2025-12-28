@@ -132,6 +132,41 @@
         </div>
       </div>
     </div>
+    <el-dialog
+      title="目录"
+      :visible.sync="serverDialogVisible"
+      width="480px"
+      v-if="serverMode"
+    >
+      <div class="serverDocList" v-loading="serverLoading">
+        <div v-if="serverDocs.length === 0" class="serverDocEmpty">
+          暂无文档
+        </div>
+        <div
+          v-for="doc in serverDocs"
+          :key="doc.id"
+          class="serverDocItem"
+          :class="{ active: doc.id === serverCurrentDocId }"
+        >
+          <div class="serverDocInfo" @click="openServerDoc(doc)">
+            <div class="serverDocTitle">{{ doc.title }}</div>
+            <div class="serverDocMeta">v{{ doc.version }}</div>
+          </div>
+          <div class="serverDocActions">
+            <el-button type="text" size="mini" @click="renameServerDoc(doc)"
+              >重命名</el-button
+            >
+            <el-button type="text" size="mini" @click="deleteServerDoc(doc)"
+              >删除</el-button
+            >
+          </div>
+        </div>
+      </div>
+      <span slot="footer" class="dialog-footer">
+        <el-button type="primary" @click="createServerDoc">新建</el-button>
+        <el-button @click="serverDialogVisible = false">关闭</el-button>
+      </span>
+    </el-dialog>
     <NodeImage></NodeImage>
     <NodeHyperlink></NodeHyperlink>
     <NodeIcon></NodeIcon>
@@ -156,6 +191,14 @@ import exampleData from 'simple-mind-map/example/exampleData'
 import { getData } from '../../../api'
 import ToolbarNodeBtnList from './ToolbarNodeBtnList.vue'
 import { throttle, isMobile } from 'simple-mind-map/src/utils/index'
+import {
+  isServerMode,
+  listDocs,
+  createDoc,
+  deleteDoc,
+  updateDoc,
+  getLastDocId
+} from '../../../api/server'
 
 // 工具栏
 let fileHandle = null
@@ -198,6 +241,11 @@ export default {
       verticalList: [],
       showMoreBtn: true,
       popoverShow: false,
+      serverMode: isServerMode(),
+      serverDialogVisible: false,
+      serverLoading: false,
+      serverDocs: [],
+      serverCurrentDocId: getLastDocId(),
       fileTreeProps: {
         label: 'name',
         children: 'children',
@@ -247,6 +295,10 @@ export default {
   },
   created() {
     this.$bus.$on('write_local_file', this.onWriteLocalFile)
+    if (this.serverMode) {
+      this.$bus.$on('server_directory_open', this.openServerDirectory)
+      this.$bus.$on('server_doc_changed', this.setCurrentServerDoc)
+    }
   },
   mounted() {
     this.computeToolbarShow()
@@ -258,6 +310,10 @@ export default {
   },
   beforeDestroy() {
     this.$bus.$off('write_local_file', this.onWriteLocalFile)
+    if (this.serverMode) {
+      this.$bus.$off('server_directory_open', this.openServerDirectory)
+      this.$bus.$off('server_doc_changed', this.setCurrentServerDoc)
+    }
     window.removeEventListener('resize', this.computeToolbarShowThrottle)
     this.$bus.$off('lang_change', this.computeToolbarShowThrottle)
     window.removeEventListener('beforeunload', this.onUnload)
@@ -355,14 +411,113 @@ export default {
       }
     },
 
-    // 扫描本地文件夹
+    async openServerDirectory() {
+      this.serverDialogVisible = true
+      this.serverLoading = true
+      try {
+        this.serverDocs = await listDocs()
+      } catch (error) {
+        console.log(error)
+        this.$message.error('目录加载失败')
+      } finally {
+        this.serverLoading = false
+      }
+    },
+
     openDirectory() {
+      if (this.serverMode) {
+        this.openServerDirectory()
+        return
+      }
       this.fileTreeVisible = false
       this.fileTreeExpand = true
       this.rootDirName = ''
       this.$nextTick(() => {
         this.fileTreeVisible = true
       })
+    },
+
+    setCurrentServerDoc(docId) {
+      this.serverCurrentDocId = docId
+    },
+
+    openServerDoc(doc) {
+      this.serverDialogVisible = false
+      this.serverCurrentDocId = doc.id
+      this.$bus.$emit('server_doc_load', doc)
+    },
+
+    async createServerDoc() {
+      try {
+        const { value } = await this.$prompt('请输入标题', '新建文档', {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          inputValue: '未命名'
+        })
+        if (!value) return
+        const payload = {
+          title: value,
+          data: getData()
+        }
+        const doc = await createDoc(payload)
+        this.serverDocs.unshift(doc)
+        this.serverCurrentDocId = doc.id
+        this.$bus.$emit('server_doc_load', doc)
+      } catch (error) {
+        if (error !== 'cancel') {
+          console.log(error)
+        }
+      }
+    },
+
+    async renameServerDoc(doc) {
+      try {
+        const { value } = await this.$prompt('请输入新标题', '重命名', {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          inputValue: doc.title
+        })
+        if (!value) return
+        const result = await updateDoc(doc.id, {
+          title: value,
+          expected_version: doc.version
+        })
+        if (result && result.conflict) {
+          this.$message.warning('版本冲突，请刷新目录')
+          return
+        }
+        if (result && result.doc) {
+          doc.title = result.doc.title
+          doc.version = result.doc.version
+        }
+      } catch (error) {
+        if (error !== 'cancel') {
+          console.log(error)
+          this.$message.error('重命名失败')
+        }
+      }
+    },
+
+    async deleteServerDoc(doc) {
+      try {
+        await this.$confirm(`确定删除「${doc.title}」吗？`, '删除文档', {
+          type: 'warning',
+          confirmButtonText: '删除',
+          cancelButtonText: '取消'
+        })
+      } catch {
+        return
+      }
+      try {
+        await deleteDoc(doc.id)
+        this.serverDocs = this.serverDocs.filter(item => item.id !== doc.id)
+        if (this.serverCurrentDocId === doc.id) {
+          this.serverCurrentDocId = null
+        }
+      } catch (error) {
+        console.log(error)
+        this.$message.error('删除失败')
+      }
     },
 
     // 编辑指定文件
@@ -531,6 +686,54 @@ export default {
       this.$bus.$emit('showNodeNote', node)
     }
   }
+}
+
+.serverDocList {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.serverDocEmpty {
+  padding: 24px 0;
+  text-align: center;
+  color: #909399;
+}
+
+.serverDocItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+
+  &.active {
+    background: rgba(64, 158, 255, 0.12);
+  }
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.03);
+  }
+}
+
+.serverDocInfo {
+  flex: 1;
+}
+
+.serverDocTitle {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.serverDocMeta {
+  font-size: 12px;
+  color: #909399;
+}
+
+.serverDocActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 </script>
 
