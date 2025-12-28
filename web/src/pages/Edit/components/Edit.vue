@@ -886,7 +886,7 @@ export default {
 
 .serverSaveStatus {
   position: fixed;
-  right: 20px;
+  left: 20px;
   bottom: 20px;
   font-size: 12px;
   color: rgba(0, 0, 0, 0.6);
