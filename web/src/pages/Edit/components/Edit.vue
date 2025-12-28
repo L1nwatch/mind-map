@@ -217,7 +217,8 @@ export default {
       serverSaveTimer: null,
       serverSaving: false,
       serverLastSavedAt: '',
-      serverSaveError: false
+      serverSaveError: false,
+      serverDocTitle: ''
     }
   },
   computed: {
@@ -394,6 +395,7 @@ export default {
         const fetched = doc.data ? doc : await getDoc(doc.id)
         this.serverDocId = fetched.id
         this.serverDocVersion = fetched.version
+        this.serverDocTitle = fetched.title || ''
         setLastDocId(fetched.id)
         this.$bus.$emit('server_doc_changed', fetched.id)
         const data = fetched.data && fetched.data.root ? fetched.data : getData()
@@ -421,18 +423,18 @@ export default {
       this.serverSaveError = false
       try {
         const fullData = this.mindMap.getData(true)
-        const title = this.inferServerTitle(fullData)
         if (!this.serverDocId) {
+          const title = this.inferServerTitle(fullData)
           const created = await createDoc({ title, data: fullData })
           this.serverDocId = created.id
           this.serverDocVersion = created.version
+          this.serverDocTitle = created.title || title
           setLastDocId(created.id)
           this.$bus.$emit('server_doc_changed', created.id)
           this.serverLastSavedAt = this.formatSavedAt(new Date())
           return
         }
         const payload = {
-          title,
           data: fullData,
           expected_version: this.serverDocVersion
         }
