@@ -252,8 +252,12 @@ export default {
   },
   mounted() {
     showLoading()
-    this.getData()
-    this.init()
+    if (this.serverMode) {
+      this.initServerMode()
+    } else {
+      this.getData()
+      this.init()
+    }
     this.$bus.$on('execCommand', this.execCommand)
     this.$bus.$on('paddingChange', this.onPaddingChange)
     this.$bus.$on('export', this.export)
@@ -269,7 +273,6 @@ export default {
     this.$bus.$on('showDownloadTip', this.showDownloadTip)
     if (this.serverMode) {
       this.$bus.$on('server_doc_load', this.loadServerDoc)
-      this.bootstrapServerDoc()
     }
   },
   beforeDestroy() {
@@ -380,12 +383,27 @@ export default {
       return '未命名'
     },
 
-    async bootstrapServerDoc() {
+    async initServerMode() {
       if (!this.serverMode) return
       if (this.serverDocId) {
-        await this.loadServerDoc({ id: this.serverDocId })
-        return
+        try {
+          const fetched = await getDoc(this.serverDocId)
+          this.serverDocId = fetched.id
+          this.serverDocVersion = fetched.version
+          this.serverDocTitle = fetched.title || ''
+          setLastDocId(fetched.id)
+          this.$bus.$emit('server_doc_changed', fetched.id)
+          this.mindMapData =
+            fetched.data && fetched.data.root ? fetched.data : getData()
+          this.mindMapConfig = getConfig() || {}
+          this.init()
+          return
+        } catch (error) {
+          console.log(error)
+        }
       }
+      this.getData()
+      this.init()
       this.$bus.$emit('server_directory_open')
     },
 
