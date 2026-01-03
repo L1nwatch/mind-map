@@ -487,9 +487,9 @@ export default {
     async handleServerConflict(conflict) {
       const current = conflict.current
       try {
-        await this.$confirm('检测到他人已更新，是否覆盖服务器版本？', '冲突提示', {
-          confirmButtonText: '覆盖',
-          cancelButtonText: '刷新'
+        await this.$confirm('检测到远端有新版本，选择保留本地或应用远端？', '冲突提示', {
+          confirmButtonText: '保留本地',
+          cancelButtonText: '应用远端'
         })
         this.downloadServerBackup(current)
         await this.saveServerDoc(true)
